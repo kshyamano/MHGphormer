@@ -1,3 +1,4 @@
+# %% [Imports]
 import torch
 import random
 import numpy as np
@@ -24,10 +25,14 @@ from torch.utils.data import DataLoader
 from scipy.integrate import quad
 
 
+
+# %% [Utility functions]
 def dBm_watt(x):
     
     return 10**(x/10)/1000
 
+
+# %% [Configuration]
 args={"IRS_elements":64,"IRS_elements_row":8,"BS_row":4,"BS_col":8,"BS_antenna":32,"num_users":6,"P_max":dBm_watt(30),"noise_pow":dBm_watt(-174),
       "loc_BS":torch.tensor((25,-20,-5)),"loc_IRS":torch.tensor((0,0,0)),"user_range_x1":(0,15),"user_range_x2":(-2.5,-10),
       "user_range_y":(0,25),"node_types":3,"sub_bands":5,"f_start":0.380e12,"f_end":0.4e12,"r_u_min":13e9,"user_antenna":2,
@@ -45,6 +50,8 @@ args={"IRS_elements":64,"IRS_elements_row":8,"BS_row":4,"BS_col":8,"BS_antenna":
 #x~[-5,-15],y~[-15,25],z=-10
 
 
+
+# %% [Distance and BS/IRS geometry]
 def dist(a,b):
     
     return torch.sqrt(torch.sum((a-b)*(a-b)))
@@ -93,6 +100,8 @@ args["angles_B"]=angles_B.cuda()
 
 
 
+
+# %% [Sample user positions and angle features]
 user_pos=torch.zeros(args.get("samples"),args.get("num_users"),3)
 
 
@@ -188,6 +197,8 @@ args["stream"]=math.floor(min(args.get("BS_antenna"),args.get("num_users")*args.
 
 
 
+
+# %% [Build adjacency and node-level features]
 adj_user_BS=F.softmax(dist_uB.pow_(-1),dim=1)
 
 adj_user_IRS=F.softmax(dist_uR.pow_(-1),dim=1)
@@ -216,6 +227,8 @@ X_IRS=X_IRS[:,None,:]
 
 
 
+
+# %% [Meta-path feature propagation]
 #meta_paths
 
 
@@ -294,6 +307,8 @@ X_BS_f=torch.cat((X_BS_B,X_BS_BR,X_BS_BU,X_BS_BRU,X_BS_BUR),2)
 X_IRS_f=torch.cat((X_IRS_R,X_IRS_RU,X_IRS_RB,X_IRS_RUB,X_IRS_RBU),2)
 
 
+
+# %% [Flatten and combine all features]
 feature_user=X_user_f.shape[2]
 
 feature_BS=X_BS_f.shape[2]
@@ -329,6 +344,8 @@ angle_ubr=torch.reshape(angles_uBR,[args["samples"],args.get('num_users')*2*args
 
 X_final=torch.cat((X_final1,angle_ur,angle_ub,dist_ur,dist_ub,angle_ubr),1)
 
+
+# %% [Split datasets and create dataloaders]
 X_train=X_final[0:args.get("train_s"),:]
 
 #X_train2=X_final_user2[0:args.get("train_s"),:,:,:]
