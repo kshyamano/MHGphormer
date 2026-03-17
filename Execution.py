@@ -12,7 +12,8 @@ def save_model(model, model_dir, epoch=None):
 model = SeHGNN(args,args.get("num_users"),args.get("feature_user"),1,args.get("feature_BS"),1,args.get("feature_IRS"),
                args.get("hidden"),args.get("dropout"))
 
-model.cuda()
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = model.to(device)
     
     
 
