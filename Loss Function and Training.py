@@ -3,6 +3,7 @@ class Trainer(object):
                   args, lr_scheduler=None):
         super(Trainer, self).__init__()
         self.model = model
+        self.device = next(model.parameters()).device
         
         
         self.optimizer = optimizer
@@ -14,7 +15,7 @@ class Trainer(object):
         self.lr_scheduler = lr_scheduler
         self.train_per_epoch = len(train_loader)
         
-        self.la=nn.Parameter(torch.FloatTensor(7))
+        self.la=nn.Parameter(torch.FloatTensor(7).to(self.device))
         
         
         nn.init.constant_(self.la, 0.1)
@@ -22,6 +23,38 @@ class Trainer(object):
         self.lam1=args.get("lam1")
         
         self.lam2=args.get("lam2")
+
+    def _prepare_batch(self, data):
+        data = data.to(self.device, non_blocking=True)
+        batch = data.size()[0]
+
+        u_count = self.args.get("num_users")
+        f_user = self.args.get("feature_user")
+        f_bs = self.args.get("feature_BS")
+        f_irs = self.args.get("feature_IRS")
+
+        x_user = torch.reshape(data[:, 0:u_count * f_user], [batch, u_count, f_user])
+        x_bs = torch.reshape(data[:, u_count * f_user:u_count * f_user + f_bs], [batch, 1, f_bs])
+        x_irs = torch.reshape(data[:, u_count * f_user + f_bs:u_count * f_user + f_bs + f_irs], [batch, 1, f_irs])
+
+        ind = u_count * f_user + f_bs + f_irs
+        ang_ur1 = data[:, ind:ind + u_count * self.args.get("IRS_elements")]
+        ang_ur = torch.reshape(ang_ur1, [batch, u_count, self.args.get("IRS_elements")])
+
+        ang_ub1 = data[:, ind + u_count * self.args.get("IRS_elements"):ind + u_count * self.args.get("IRS_elements") + u_count * self.args.get("BS_antenna")]
+        ang_ub = torch.reshape(ang_ub1, [batch, u_count, self.args.get("BS_antenna")])
+
+        ind3 = ind + u_count * self.args.get("IRS_elements") + u_count * self.args.get("BS_antenna")
+        dist_ur1 = data[:, ind3:ind3 + u_count]
+        dist_ub1 = data[:, ind3 + u_count:ind3 + 2 * u_count]
+
+        dist_ur = torch.reshape(dist_ur1, [batch, u_count, 1])
+        dist_ub = torch.reshape(dist_ub1, [batch, u_count, 1])
+
+        ind4 = ind3 + 2 * u_count
+        ang_uBR = data[:, ind4:ind4 + 2 * u_count * self.args.get("user_antenna")]
+        ang_uBR = torch.reshape(ang_uBR, [batch, u_count, 2, self.args.get("user_antenna")])
+        return x_user, x_bs, x_irs, dist_ur, dist_ub, ang_ur, ang_ub, ang_uBR
         
         
         #log
@@ -37,6 +70,7 @@ class Trainer(object):
     
     
     def channel_gain(self,f,int_samp,power,phase,bs,dist_ur,dist_ub,ang_ur,ang_ub,batch,ang_uBR):
+        device = f.device
         
         eta1=self.args.get("eta_1")
         eta2=self.args.get("eta_2")
@@ -54,9 +88,9 @@ class Trainer(object):
         #lamb=c*f_inv
         
         
-        j=torch.view_as_complex(torch.FloatTensor([0,1]))
+        j=torch.complex(torch.tensor(0.0, device=device), torch.tensor(1.0, device=device))
         
-        a_bs1=j*self.args.get("angles_B")*2*torch.tensor(math.pi)*self.args.get("antenna_space")/c
+        a_bs1=j*self.args.get("angles_B")*2*f.new_tensor(math.pi)*self.args.get("antenna_space")/c
         
         f_bs=f[:,:,:,None]
         f_bs=f_bs.repeat(1,1,1,self.args.get("BS_antenna"))
@@ -68,7 +102,7 @@ class Trainer(object):
         
         a_bs=(1/math.sqrt(self.args.get("BS_antenna")))*torch.exp(f_bs*a_bs1) #B S INT_SAMP N_t
         
-        a_irs=j*self.args.get("angles_R")*2*torch.tensor(math.pi)*self.args.get("IRS_space")/c
+        a_irs=j*self.args.get("angles_R")*2*f.new_tensor(math.pi)*self.args.get("IRS_space")/c
         
         f_irs=f[:,:,:,None]
         f_irs=f_irs.repeat(1,1,1,self.args.get("IRS_elements"))
@@ -85,7 +119,7 @@ class Trainer(object):
         alpha_br=torch.exp(-0.5*k_abs*self.args.get("dist_br"))*(f_inv*(c/(4*math.pi*self.args.get("dist_br"))))
         
         delay=random.uniform(0,30)*1e-9
-        comp=-2*torch.tensor(math.pi)*j*delay
+        comp=-2*f.new_tensor(math.pi)*j*delay
         
         outer_br=torch.einsum('bsij,bsik->bsijk',a_irs,torch.conj(a_bs))*torch.exp(comp*f_br)
         
@@ -109,7 +143,7 @@ class Trainer(object):
         
         
         
-        a_ur=j*ang_ur*2*torch.tensor(math.pi)*self.args.get("IRS_space")/c
+        a_ur=j*ang_ur*2*f.new_tensor(math.pi)*self.args.get("IRS_space")/c
         
         a_ur=(1/self.args.get("IRS_elements"))*torch.exp(a_ur*f_ur)
         
@@ -117,7 +151,7 @@ class Trainer(object):
         f_ur2=f[:,:,:,None,None]
         f_ur2=f_ur2.repeat(1,1,1,self.args.get("num_users"),self.args.get("user_antenna"))
         
-        a_ur1=j*ang_uBR[:,:,1,:]*2*torch.tensor(math.pi)*self.args.get("antenna_space")/c
+        a_ur1=j*ang_uBR[:,:,1,:]*2*f.new_tensor(math.pi)*self.args.get("antenna_space")/c
         
         a_ur1=a_ur1[:,None,None,:,:]
         
@@ -146,7 +180,7 @@ class Trainer(object):
         #alpha_ur=alpha_ur.repeat(1,1,self.args.get("IRS_elements"))
         
         delay=random.uniform(0,30)*1e-9
-        comp=-2*torch.tensor(math.pi)*j*delay
+        comp=-2*f.new_tensor(math.pi)*j*delay
         
         h_ur=alpha_ur*outer_ur*torch.exp(comp*f_ur3)
         
@@ -162,7 +196,7 @@ class Trainer(object):
         f_ub=f[:,:,:,None,None]
         f_ub=f_ub.repeat(1,1,1,self.args.get("num_users"),self.args.get("BS_antenna"))
         
-        a_ub=j*ang_ub*2*torch.tensor(math.pi)*self.args.get("antenna_space")/c
+        a_ub=j*ang_ub*2*f.new_tensor(math.pi)*self.args.get("antenna_space")/c
         a_ub=(1/math.sqrt(self.args.get("BS_antenna")))*torch.exp(a_ub*f_ub)
         
         
@@ -170,7 +204,7 @@ class Trainer(object):
         f_ub2=f[:,:,:,None,None]
         f_ub2=f_ub2.repeat(1,1,1,self.args.get("num_users"),self.args.get("user_antenna"))
         
-        a_ub1=j*ang_uBR[:,:,0,:]*2*torch.tensor(math.pi)*self.args.get("antenna_space")/c
+        a_ub1=j*ang_uBR[:,:,0,:]*2*f.new_tensor(math.pi)*self.args.get("antenna_space")/c
         
         a_ub1=a_ub1[:,None,None,:,:]
         
@@ -195,7 +229,7 @@ class Trainer(object):
         outer_ub=torch.einsum('bsoij,bsoik->bsoijk',a_ub1,torch.conj(a_ub)) #dimension N_r * N_t
         
         delay=random.uniform(0,30)*1e-9
-        comp=-2*torch.tensor(math.pi)*j*delay
+        comp=-2*f.new_tensor(math.pi)*j*delay
         
         h_ub=alpha_ub*outer_ub*torch.exp(comp*f_ub3)
         
@@ -209,7 +243,7 @@ class Trainer(object):
         #gt=torch.sqrt(1-phase[:,0,:,2])*torch.exp(j*phase[:,0,:,0])
         
         
-        b = torch.eye(gr.size(1)).cuda()
+        b = torch.eye(gr.size(1), device=device)
         
         c1 = gr.unsqueeze(2).expand(*gr.size(), gr.size(1))
         G_r = c1* b #B L^2 L^2
@@ -272,7 +306,7 @@ class Trainer(object):
         
         
         
-        I=torch.eye(self.args.get("num_users")).cuda()+0*j
+        I=torch.eye(self.args.get("num_users"), device=device)+0*j
         
         I=I[None,None,None,:,:]
         
@@ -284,7 +318,7 @@ class Trainer(object):
         
         #print(de)
         
-        I_r=torch.eye(self.args.get("user_antenna")).cuda()
+        I_r=torch.eye(self.args.get("user_antenna"), device=device)
         
         I_r=I_r[None,None,None,None,:,:]
         
@@ -297,6 +331,7 @@ class Trainer(object):
         #print((de == 0).nonzero())
         
         rate_f=torch.log2(torch.linalg.det(I_r+torch.einsum('bsiurt,bsiutp->bsiurp',nu,torch.linalg.inv(de+1e-10))).real)
+        rate_f = torch.nan_to_num(rate_f, nan=0.0, posinf=0.0, neginf=0.0)
         
         del h_u_all
        # del h_u_transmission
@@ -346,8 +381,6 @@ class Trainer(object):
         
         
         
-        torch.cuda.empty_cache()
-        
         return rate_f
         
         
@@ -388,7 +421,8 @@ class Trainer(object):
         
             
             
-        fs=self.args.get("f_start")*torch.ones(batch,self.args.get("sub_bands")).cuda()
+        device = power.device
+        fs=self.args.get("f_start")*torch.ones(batch,self.args.get("sub_bands"), device=device)
             
         int_samp=self.args.get("int_samp")    
         
@@ -413,7 +447,7 @@ class Trainer(object):
         bs3=bs[:,:,None,None]
         bs3=bs3.repeat(1,1,int_samp,self.args.get("num_users"))
         
-        start=torch.ones(self.args.get("sub_bands"),self.args.get("sub_bands")).cuda()
+        start=torch.ones(self.args.get("sub_bands"),self.args.get("sub_bands"), device=device)
         start=start-torch.triu(start)
         
         bsg=bs+self.args.get("b_g")
@@ -427,7 +461,7 @@ class Trainer(object):
         
         
             
-        ran=torch.tensor(range(int_samp)).cuda()
+        ran=torch.arange(int_samp, device=device)
         ran=ran[None,None,:]
         ran=ran.repeat(batch,self.args.get("sub_bands"),1)
             #r_s_u[b,s,u] =quad(self.channel_gain, fs-band[b,0,s]/2, fs+band[b,0,s]/2, args=(power,phase,bs,dist_ur,dist_ub,ang_ur,ang_ub,batch,b,u,s))[0]
@@ -469,7 +503,8 @@ class Trainer(object):
         
         band=band.detach()
         
-        self.lam1=F.relu(self.lam1+torch.sum(self.args.get("r_u_min")-torch.sum(r_s_u,dim=1))/batch)
+        with torch.no_grad():
+            self.lam1=F.relu(self.lam1+torch.sum(self.args.get("r_u_min")-torch.sum(r_s_u,dim=1))/batch)
         
         #self.lam2=F.relu(self.lam2+torch.sum(cons-torch.sum(band[:,0,:],dim=1))/batch)
         
@@ -489,8 +524,6 @@ class Trainer(object):
         del ran
         del f_st
         del start
-        torch.cuda.empty_cache()
-        
         #print(band)
         
         return loss,r_s_u,torch.sum(r_s_u)/batch
@@ -505,67 +538,7 @@ class Trainer(object):
             for batch_idx, data in enumerate(val_dataloader):
                 #data = data[..., :self.args.get('input_dim')]
                 #label = target[..., :self.args.get('output_dim')]
-                batch=data.size()[0]
-                
-                user=data.size()[1]
-                
-                x_user=data[:,0:self.args.get("num_users")*self.args.get("feature_user")]
-                
-                x_user=torch.reshape(x_user,[batch,self.args.get("num_users"),self.args.get("feature_user")])
-                
-                
-                
-                x_bs=data[:,self.args.get("num_users")*self.args.get("feature_user"):self.args.get("num_users")*self.args.get("feature_user")+self.args.get("feature_BS")]
-                
-                x_bs=torch.reshape(x_bs,[batch,1,self.args.get("feature_BS")])
-                
-                
-                
-                x_irs=data[:,self.args.get("num_users")*self.args.get("feature_user")+self.args.get("feature_BS"):self.args.get("num_users")*self.args.get("feature_user")+self.args.get("feature_BS")+self.args.get("feature_IRS")]
-                
-                x_irs=torch.reshape(x_irs,[batch,1,self.args.get("feature_IRS")])
-                
-                
-                
-                ind=self.args.get("num_users")*self.args.get("feature_user")+self.args.get("feature_BS")+self.args.get("feature_IRS")
-                
-                
-                ang_r=1
-                
-                
-                ang_b=2
-                
-                
-                ind2=ind
-                
-                
-                ang_ur1=data[:,ind2:ind2+self.args.get("num_users")*self.args.get("IRS_elements")]
-                
-                ang_ur=torch.reshape(ang_ur1,[batch,self.args.get("num_users"),self.args.get("IRS_elements")])
-                
-                
-                
-                ang_ub1=data[:,ind2+self.args.get("num_users")*self.args.get("IRS_elements"):ind2+self.args.get("num_users")*self.args.get("IRS_elements")+self.args.get("num_users")*self.args.get("BS_antenna")]
-                
-                ang_ub=torch.reshape(ang_ub1,[batch,self.args.get("num_users"),self.args.get("BS_antenna")])
-                
-                
-                ind3=ind2+self.args.get("num_users")*self.args.get("IRS_elements")+self.args.get("num_users")*self.args.get("BS_antenna")
-                
-                dist_ur1=data[:,ind3:ind3+self.args.get("num_users")]
-                
-                dist_ur=torch.reshape(dist_ur1,[batch,self.args.get("num_users"),1])
-                
-                
-                dist_ub1=data[:,ind3+self.args.get("num_users"):ind3+2*self.args.get("num_users")]
-                
-                dist_ub=torch.reshape(dist_ur1,[batch,self.args.get("num_users"),1])
-                
-                ind4=ind3+2*self.args.get("num_users")
-                
-                ang_uBR=data[:,ind4:ind4+2*self.args.get("num_users")*self.args.get("user_antenna")]
-                
-                ang_uBR=torch.reshape(ang_uBR,[batch,self.args.get("num_users"),2,self.args.get("user_antenna")])
+                x_user, x_bs, x_irs, dist_ur, dist_ub, ang_ur, ang_ub, ang_uBR = self._prepare_batch(data)
                 
                 power,phase,band = self.model(x_user,x_bs,x_irs,epoch)
                 
@@ -601,69 +574,7 @@ class Trainer(object):
 
             #teacher_forcing for RNN encoder-decoder model
             #if teacher_forcing_ratio = 1: use label as input in the decoder for all steps
-            batch=data.size()[0]
-                
-            user=data.size()[1]
-                
-            x_user=data[:,0:self.args.get("num_users")*self.args.get("feature_user")]
-                
-            x_user=torch.reshape(x_user,[batch,self.args.get("num_users"),self.args.get("feature_user")])
-                
-                
-                
-            x_bs=data[:,self.args.get("num_users")*self.args.get("feature_user"):self.args.get("num_users")*self.args.get("feature_user")+self.args.get("feature_BS")]
-                
-            x_bs=torch.reshape(x_bs,[batch,1,self.args.get("feature_BS")])
-                
-                
-                
-            x_irs=data[:,self.args.get("num_users")*self.args.get("feature_user")+self.args.get("feature_BS"):self.args.get("num_users")*self.args.get("feature_user")+self.args.get("feature_BS")+self.args.get("feature_IRS")]
-                
-            x_irs=torch.reshape(x_irs,[batch,1,self.args.get("feature_IRS")])
-                
-                
-                
-            ind=self.args.get("num_users")*self.args.get("feature_user")+self.args.get("feature_BS")+self.args.get("feature_IRS")
-                
-                
-            ang_r=1
-                
-                
-            ang_b=2
-                
-                
-            ind2=ind
-                
-                
-            ang_ur1=data[:,ind2:ind2+self.args.get("num_users")*self.args.get("IRS_elements")]
-                
-            ang_ur=torch.reshape(ang_ur1,[batch,self.args.get("num_users"),self.args.get("IRS_elements")])
-                
-                
-                
-            ang_ub1=data[:,ind2+self.args.get("num_users")*self.args.get("IRS_elements"):ind2+self.args.get("num_users")*self.args.get("IRS_elements")+self.args.get("num_users")*self.args.get("BS_antenna")]
-                
-            ang_ub=torch.reshape(ang_ub1,[batch,self.args.get("num_users"),self.args.get("BS_antenna")])
-                
-                
-            ind3=ind2+self.args.get("num_users")*self.args.get("IRS_elements")+self.args.get("num_users")*self.args.get("BS_antenna")
-                
-            dist_ur1=data[:,ind3:ind3+self.args.get("num_users")]
-                
-            dist_ur=torch.reshape(dist_ur1,[batch,self.args.get("num_users"),1])
-                
-                
-            dist_ub1=data[:,ind3+self.args.get("num_users"):ind3+2*self.args.get("num_users")]
-            
-            
-                
-            dist_ub=torch.reshape(dist_ur1,[batch,self.args.get("num_users"),1])
-                
-            ind4=ind3+2*self.args.get("num_users")
-                
-            ang_uBR=data[:,ind4:ind4+2*self.args.get("num_users")*self.args.get("user_antenna")]
-            
-            ang_uBR=torch.reshape(ang_uBR,[batch,self.args.get("num_users"),2,self.args.get("user_antenna")])
+            x_user, x_bs, x_irs, dist_ur, dist_ub, ang_ur, ang_ub, ang_uBR = self._prepare_batch(data)
                 
             power,phase,band = self.model(x_user,x_bs,x_irs,epoch)
                 
@@ -677,7 +588,11 @@ class Trainer(object):
             
             
             
+            if not torch.isfinite(loss):
+                continue
+
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
 
             # add max grad clipping
             
@@ -785,67 +700,7 @@ class Trainer(object):
         total_sum=[]
         with torch.no_grad():
             for batch_idx, data in enumerate(self.test_loader):
-                batch=data.size()[0]
-                
-                user=data.size()[1]
-                
-                x_user=data[:,0:args.get("num_users")*args.get("feature_user")]
-                
-                x_user=torch.reshape(x_user,[batch,args.get("num_users"),args.get("feature_user")])
-                
-                
-                
-                x_bs=data[:,args.get("num_users")*args.get("feature_user"):args.get("num_users")*args.get("feature_user")+args.get("feature_BS")]
-                
-                x_bs=torch.reshape(x_bs,[batch,1,args.get("feature_BS")])
-                
-                
-                
-                x_irs=data[:,args.get("num_users")*args.get("feature_user")+args.get("feature_BS"):args.get("num_users")*args.get("feature_user")+args.get("feature_BS")+args.get("feature_IRS")]
-                
-                x_irs=torch.reshape(x_irs,[batch,1,args.get("feature_IRS")])
-                
-                
-                
-                ind=args.get("num_users")*args.get("feature_user")+args.get("feature_BS")+args.get("feature_IRS")
-                
-                
-                ang_r=1
-                
-                
-                ang_b=2
-                
-                
-                ind2=ind
-                
-                
-                ang_ur1=data[:,ind2:ind2+args.get("num_users")*args.get("IRS_elements")]
-                
-                ang_ur=torch.reshape(ang_ur1,[batch,args.get("num_users"),args.get("IRS_elements")])
-                
-                
-                
-                ang_ub1=data[:,ind2+args.get("num_users")*args.get("IRS_elements"):ind2+args.get("num_users")*args.get("IRS_elements")+args.get("num_users")*args.get("BS_antenna")]
-                
-                ang_ub=torch.reshape(ang_ub1,[batch,args.get("num_users"),args.get("BS_antenna")])
-                
-                
-                ind3=ind2+args.get("num_users")*args.get("IRS_elements")+args.get("num_users")*args.get("BS_antenna")
-                
-                dist_ur1=data[:,ind3:ind3+args.get("num_users")]
-                
-                dist_ur=torch.reshape(dist_ur1,[batch,args.get("num_users"),1])
-                
-                
-                dist_ub1=data[:,ind3+args.get("num_users"):ind3+2*args.get("num_users")]
-                
-                dist_ub=torch.reshape(dist_ur1,[batch,args.get("num_users"),1])
-                
-                ind4=ind3+2*self.args.get("num_users")
-                
-                ang_uBR=data[:,ind4:ind4+2*self.args.get("num_users")*self.args.get("user_antenna")]
-                
-                ang_uBR=torch.reshape(ang_uBR,[batch,self.args.get("num_users"),2,self.args.get("user_antenna")])
+                x_user, x_bs, x_irs, dist_ur, dist_ub, ang_ur, ang_ub, ang_uBR = self._prepare_batch(data)
                 
                 
                 

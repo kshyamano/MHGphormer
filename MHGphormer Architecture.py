@@ -10,15 +10,15 @@ class MLPLayer(nn.Module):
         if out_features2==1:
             
             
-            self.weight = nn.Parameter(torch.FloatTensor(in_features, out_features1)).cuda()
+            self.weight = nn.Parameter(torch.FloatTensor(in_features, out_features1))
         
-            self.bias = nn.Parameter(torch.FloatTensor(out_features1)).cuda()
+            self.bias = nn.Parameter(torch.FloatTensor(out_features1))
             
         else:
             
-            self.weight = nn.Parameter(torch.FloatTensor(in_features, out_features1,out_features2)).cuda()
+            self.weight = nn.Parameter(torch.FloatTensor(in_features, out_features1,out_features2))
         
-            self.bias = nn.Parameter(torch.FloatTensor(out_features1,out_features2)).cuda()
+            self.bias = nn.Parameter(torch.FloatTensor(out_features1,out_features2))
             
             
             
@@ -68,17 +68,17 @@ class MLPLayer_comp(nn.Module):
         if out_features2==1:
             
             
-            self.weight = nn.Parameter(torch.randn([in_features, out_features1],dtype=torch.cfloat)).cuda()
+            self.weight = nn.Parameter(torch.randn([in_features, out_features1],dtype=torch.cfloat))
             
             
         
-            self.bias = nn.Parameter(torch.randn([out_features1],dtype=torch.cfloat)).cuda()
+            self.bias = nn.Parameter(torch.randn([out_features1],dtype=torch.cfloat))
             
         else:
             
-            self.weight = nn.Parameter(torch.randn([in_features, out_features1,out_features2],dtype=torch.cfloat)).cuda()
+            self.weight = nn.Parameter(torch.randn([in_features, out_features1,out_features2],dtype=torch.cfloat))
         
-            self.bias = nn.Parameter(torch.randn([out_features1,out_features2],dtype=torch.cfloat)).cuda()
+            self.bias = nn.Parameter(torch.randn([out_features1,out_features2],dtype=torch.cfloat))
             
             
             
@@ -131,7 +131,7 @@ class Transformer(nn.Module):
         self.value = nn.Linear(self.n_channels, self.n_channels)
         
         
-        self.q=nn.Parameter(torch.FloatTensor(self.n_channels, self.n_channels//4)).cuda()
+        self.q=nn.Parameter(torch.FloatTensor(self.n_channels, self.n_channels//4))
 
         self.gamma = nn.Parameter(torch.tensor([0.]))
         self.att_drop = nn.Dropout(att_drop)
@@ -368,7 +368,7 @@ class SeHGNN(nn.Module):
         
         p=features[:,0:self.node1,:]
         
-        p0=torch.zeros(p.shape[0],p.shape[1],p.shape[2]).cuda()
+        p0=torch.zeros(p.shape[0],p.shape[1],p.shape[2])
         
         
         c=torch.stack((p,p0),dim=3)

@@ -28,6 +28,8 @@ def dBm_watt(x):
     
     return 10**(x/10)/1000
 
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 args={"IRS_elements":64,"IRS_elements_row":8,"BS_row":4,"BS_col":8,"BS_antenna":32,"num_users":6,"P_max":dBm_watt(30),"noise_pow":dBm_watt(-174),
       "loc_BS":torch.tensor((25,-20,-5)),"loc_IRS":torch.tensor((0,0,0)),"user_range_x1":(0,15),"user_range_x2":(-2.5,-10),
       "user_range_y":(0,25),"node_types":3,"sub_bands":5,"f_start":0.380e12,"f_end":0.4e12,"r_u_min":13e9,"user_antenna":2,
@@ -80,9 +82,9 @@ for n in range(args.get("BS_antenna")):
 
 
 
-args["angles_R"]=angles_R.cuda()
+args["angles_R"]=angles_R.to(device)
 
-args["angles_B"]=angles_B.cuda()
+args["angles_B"]=angles_B.to(device)
 
 
 
@@ -177,8 +179,8 @@ for k in range(args.get("samples")):
         #angles_uB[k,u,:]=cos_phi_cos_theta_uB*torch.tensor(BS_antennas)
         
         
-args["angles_uR"]=angles_uR.cuda()
-args["angles_uB"]=angles_uB.cuda()
+args["angles_uR"]=angles_uR.to(device)
+args["angles_uB"]=angles_uB.to(device)
 
 args["dist_ub"]=dist_uB
 args["dist_ur"]=dist_uR
@@ -345,12 +347,11 @@ X_test=X_final[args.get("train_s")+args.get("validation_s"):args.get("train_s")+
 
 
 
-train = DataLoader(X_train.cuda(), batch_size=args["batch"], shuffle=False,drop_last=True)
+train = DataLoader(X_train, batch_size=args["batch"], shuffle=False, drop_last=True, pin_memory=torch.cuda.is_available())
 
 #train2 = DataLoader(X_train2, batch_size=args["batch"], shuffle=False)
 
-valid = DataLoader(X_valid.cuda(), batch_size=args["batch"], shuffle=False,drop_last=True)
+valid = DataLoader(X_valid, batch_size=args["batch"], shuffle=False, drop_last=True, pin_memory=torch.cuda.is_available())
 #valid2 = DataLoader(X_valid2, batch_size=args["batch"], shuffle=False)
 
-test = DataLoader(X_test.cuda(), batch_size=args["batch"], shuffle=False,drop_last=True)
-
+test = DataLoader(X_test, batch_size=args["batch"], shuffle=False, drop_last=True, pin_memory=torch.cuda.is_available())
